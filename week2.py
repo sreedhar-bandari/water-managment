@@ -1,67 +1,89 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
+import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score
 
+# Page settings
 st.set_page_config(page_title="Smart Irrigation Prediction", layout="centered")
-st.title("🌱 Smart Irrigation Prediction (Text Output)")
 
-# --- Generate dataset ---
-@st.cache_data
-def generate_dataset(seed: int = 42, n: int = 200):
-    np.random.seed(seed)
-    data = {
-        "Soil_Moisture": np.random.randint(10, 90, n),
-        "Temperature": np.random.randint(15, 40, n),
-        "Rainfall": np.random.randint(0, 60, n),
-        "Crop": np.random.choice(["Wheat", "Rice", "Maize"], n)
-    }
-    df = pd.DataFrame(data)
-    df["Water_Needed"] = (
-        (100 - df["Soil_Moisture"]) * 0.45 +
-        (df["Temperature"] - 18) * 1.8 -
-        df["Rainfall"] * 0.35 +
-        np.where(df["Crop"] == "Rice", 22,
-                 np.where(df["Crop"] == "Wheat", 12, 6))
-    )
-    df["Water_Needed"] = df["Water_Needed"] + np.random.normal(0, 2, size=n)
-    return df.round(2)
+# Title
+st.title("🌱 Smart Irrigation Prediction using AI/ML")
 
-# --- Prepare model ---
-@st.cache_data
-def train_model(df):
-    le = LabelEncoder()
-    df["Crop_Code"] = le.fit_transform(df["Crop"])
-    X = df[["Soil_Moisture", "Temperature", "Rainfall", "Crop_Code"]]
-    y = df["Water_Needed"]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = LinearRegression()
-    model.fit(X_train, y_train)
-    return model, le
+st.write("This app predicts the *water requirement* for different crops and gives easy-to-understand advice for farmers.")
 
-# --- Generate dataset and model ---
-df = generate_dataset()
-model, le = train_model(df)
+# -------------------------------
+# User Input Section
+# -------------------------------
+st.subheader("📥 Enter Crop & Environmental Parameters")
 
-# --- User input ---
-st.subheader("Enter Parameters")
-soil = st.slider("Soil Moisture (%)", 0, 100, 40)
-temp = st.slider("Temperature (°C)", 0, 50, 30)
-rain = st.slider("Rainfall (mm)", 0, 200, 5)
-crop = st.selectbox("Crop Type", ["Wheat", "Rice", "Maize"])
+# Crop selection
+crop = st.selectbox("Select Crop", ["Wheat", "Rice", "Maize"])
 
-# --- Prediction ---
-if st.button("Predict Water Requirement"):
-    crop_code = le.transform([crop])[0]
-    sample = np.array([[soil, temp, rain, crop_code]])
-    prediction = model.predict(sample)[0]
+soil_moisture = st.number_input("Soil Moisture (%)", min_value=0, max_value=100, value=30)
+temperature = st.number_input("Temperature (°C)", min_value=-10, max_value=60, value=25)
+humidity = st.number_input("Humidity (%)", min_value=0, max_value=100, value=60)
 
-    # --- Display output in text form ---
-    st.write("### ✅ Prediction (Text Form)")
-    st.write(f"Soil Moisture = {soil} %")
-    st.write(f"Temperature = {temp} °C")
-    st.write(f"Rainfall = {rain} mm")
-    st.write(f"Crop = {crop}")
-    st.write(f"➡️ Estimated Water Requirement = {prediction:.2f} units")
+# -------------------------------
+# Dummy Training Data
+# -------------------------------
+if crop == "Wheat":
+    X = np.array([[20, 20, 40], [30, 22, 50], [40, 25, 55], [50, 28, 60], [60, 30, 65]])
+    y = np.array([30, 50, 70, 90, 110])
+elif crop == "Rice":
+    X = np.array([[20, 25, 60], [30, 28, 65], [40, 30, 70], [50, 32, 75], [60, 35, 80]])
+    y = np.array([50, 70, 90, 110, 130])
+else:  # Maize
+    X = np.array([[20, 23, 45], [30, 25, 55], [40, 28, 60], [50, 30, 65], [60, 33, 70]])
+    y = np.array([40, 60, 85, 105, 125])
+
+# Train model
+model = LinearRegression().fit(X, y)
+
+# Model accuracy
+y_pred = model.predict(X)
+accuracy = r2_score(y, y_pred) * 100
+
+# -------------------------------
+# Prediction
+# -------------------------------
+if st.button("💧 Predict Water Requirement"):
+    pred = model.predict([[soil_moisture, temperature, humidity]])[0]
+    
+    # Show farmer-friendly result
+    st.success(f"### ✅ For {crop}, you should give around *{pred:.0f} liters of water* per acre.")
+    
+    # Farmer-friendly advice
+    if pred < 50:
+        advice = "💡 Soil has enough moisture. Give *less water* to avoid wastage."
+    elif 50 <= pred <= 100:
+        advice = "💡 Give *moderate water*. This is the optimal range for crop growth."
+    else:
+        advice = "💡 Crop needs *more water* due to high temperature and low soil moisture."
+    
+    st.warning(advice)
+    
+    # Show accuracy
+    st.info(f"📊 Model Accuracy: {accuracy:.2f}% (based on training data)")
+    
+    # -------------------------------
+    # Graph: Show only Prediction Trend (Farmer-friendly)
+    # -------------------------------
+    st.subheader("📈 Water Requirement Trend for Training Samples")
+
+    fig, ax = plt.subplots()
+    ax.plot(y, label="Ideal Water Requirement", marker="o")
+    ax.plot(y_pred, label="Model Prediction", marker="x", linestyle="--")
+    ax.axhline(pred, color="red", linestyle=":", label=f"Your Crop Prediction ({pred:.0f})")
+    
+    ax.set_xlabel("Sample Index")
+    ax.set_ylabel("Water Requirement (liters/acre)")
+    ax.set_ylim(0, max(max(y), max(y_pred), pred) + 20)  # consistent scale
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
+
+# -------------------------------
+# Extra Information
+# -------------------------------
+st.caption("save Water, save Future! 🌍💧")
